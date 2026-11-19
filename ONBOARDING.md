@@ -1,30 +1,40 @@
 # llm-noun-recall-system 入库指南
 
-审阅基线 [`main` 的 `2649838`](https://github.com/18926119195/llm-noun-recall-system/commit/2649838ddf83f12a946a5ce13de8e1f09ae2cb39)，2026-11-19。这里是 LLM 名词筛选与评分、拓扑扩展、chunk 去重、带引用的推理实验归档。先看 [实验总览](EXPERIMENTS_README.md) 找到问题所在阶段，再根据 [项目概览](README.md) 定位脚本。
+[一分钟定位](#一分钟定位) · [沿聊天时间线看灵感](#沿聊天时间线看灵感) · [从代码反查来由](#从代码反查来由) · [走读与维护记录](#走读与维护记录)
 
-## 可追溯开发历程
+## 一分钟定位
 
-本次在默认分支全部 18 个追踪文件及其 9 月 18 日提交中检索了会话、transcript、JSONL 和实验记录，未定位到原始人机对话。时间线按实验文档重建，日期来自归档提交。若维护者能补充原始会话，应把消息时间或段落接入下表，保留当前的文档来源。[实验总览](EXPERIMENTS_README.md) · [提交记录](https://github.com/18926119195/llm-noun-recall-system/commits/main/)
+这是一次 LLM 名词检索和引用推理实验的留档。从 [`recall-nouns-llm.js`](recall-nouns-llm.js) 看两段评分与拓扑召回，从 [Exp32 说明](_exp32_README.md) 看展示用材料与后台引用映射，从 [Exp34 报告](_exp34_evaluation_report.md) 看 15 题历史输出。以下状态以 [`main @ 2649838`](https://github.com/18926119195/llm-noun-recall-system/commit/2649838ddf83f12a946a5ce13de8e1f09ae2cb39) 为准。
 
-| 实验阶段 | 提出的问题 | 实现和证据 |
+根目录只有 18 个跟踪文件。在线召回所需的 Docuverse 原文、终词表与题库没有一并保存在这个版本。Exp32 两个脚本、Exp34 两份结果 JSON、早期实验说明是不同层次的证据。[文件地图](README.md)
+
+借用钱学森工程控制论的观察与反馈思路，先按实验想回答的问题定位，再用版本化代码和产物核查。发现描述与代码不同，就保留两边的出处和适用范围。
+
+## 沿聊天时间线看灵感
+
+**如何读状态。** 已实现表示在所列版本找到与灵感相符的代码路径。部分实现表示已有其中一段。未实现表示已查的入口尚无对应实现。证据不足时标待确认。归档与设计文稿按资料本身的状态描述。
+
+在默认分支文件与可见提交中未找到原始人机对话。下表以 [实验总览](EXPERIMENTS_README.md) 的实验顺序回溯构想，所有可见的相关提交归档于 2026-09-18。实验编号能标示先后，原始提出者、消息时间及未收录的会话出处仍待证实。[提交历史](https://github.com/18926119195/llm-noun-recall-system/commits/main/)
+
+| ID | 实验记录位置 | 可追溯的构想 | 当前状态 | 实现证据 |
+| --- | --- | --- | --- | --- |
+| <a name="idea-i01"></a>I01 | Exp 1–15，Embedding 基线及召回质量对照 | 把按名词评分后沿拓扑取块和向量召回在同题上比较。 [对照报告](embedding-vs-llm-noun-retrieval-comparison.md) | 有实验与一侧代码 | 召回脚本有 LLM 粗筛、精打和按块取文逻辑。对照报告保存两种方法的 Top-K 重合，向量端运行入口未见于此快照。 [召回脚本](recall-nouns-llm.js#L382) |
+| <a name="idea-i02"></a>I02 | Exp 16–17，阈值优化 | 在固定分数和固定 Top-N 之间找合适截断点。 [实验总览](EXPERIMENTS_README.md) | 部分落地 | 当前脚本直接按 `TOP_N` 排序截断，默认 100。实验文档记录过 score ≥ 95 或 Top 10–15 两种候选设置。 [参数](recall-nouns-llm.js#L37) · [截断](recall-nouns-llm.js#L518) |
+| <a name="idea-i03"></a>I03 | Exp 18–24，去重试验 | 多个名词召回到同一块时只保留一份。 [204 块说明](CHUNK_204_EXPLANATION.md) | 已实现 | 主脚本将 `recalledBookKeys` 存为 Set。204 是 Z1-Q1 特定 Top 80 的历史统计，当前默认值与该试验设置不同。 [Set 去重](recall-nouns-llm.js#L521) |
+| <a name="idea-i04"></a>I04 | Exp 32，双输出与多材料引用 | 给模型简洁材料，另存材料 ID 到 chunk 的映射，同一步可以引用多个材料。 [设计记录](_exp32_optimized_traceability_design.md) | 已实现构建部分 | 两份脚本生成映射和 Prompt；离线合成样本可让 `【【1】】` 回到其 `chunkKey`。映射键为页码加正文前 100 字符，有冲突或空键的可能。 [映射构建](_exp32_build_prompt_with_traceback.cjs) · [Prompt 生成](_exp32_generate_multipath_prompt.cjs) |
+| <a name="idea-i05"></a>I05 | Exp 32，实施说明步骤 3–4 | 调用模型后解析引用，再将原文来源映射回推理结果。 [实施说明](_exp32_README.md) | 在本库未找到完整落地 | 说明点名的 `_exp32_test_multipath_reasoning.cjs` 与 `_exp32_parse_and_inject_traceback.cjs` 都不在当前树中。本库有构建脚本和设计记录。 [该版本内容](https://github.com/18926119195/llm-noun-recall-system/tree/2649838ddf83f12a946a5ce13de8e1f09ae2cb39) |
+| <a name="idea-i06"></a>I06 | Exp 34，15 题推理评测 | 保存整批推理回答与调用规模，方便比较覆盖与费用。 | 已有归档结果 | 报告记录 15/15 生成完成，结果有两份 JSON。生成完成与答复质量可从报告的不同字段回查。 [评测报告](_exp34_evaluation_report.md) · [结果数据](_exp34_all_reasoning_output.json) |
+
+## 从代码反查来由
+
+| 当前文件或入口 | 回到构想 | 走读重点 |
 | --- | --- | --- |
-| Exp 1–15 | 采用哪种召回，在相关性与成本之间怎样取舍 | 召回脚本有两段 LLM 筛选/评分、拓扑关系和按块访问原文的实现。15 题对照档案衡量两种方法的 Top-K 重合，继续选择方案需要人工相关性标签。[召回入口](recall-nouns-llm.js) · [Embedding 对照](embedding-vs-llm-noun-retrieval-comparison.md) |
-| Exp 16–24 | 将重复块归并，并确认 Top-N 阈值的代价 | 去重诊断脚本与 204 块分析已入库。204 指特定 Z1-Q1 配置下 Top 80 名词对应的历史结果，全部 240 词的块数在文档中为估算。[去重分析](_analyze_dedup.cjs) · [204 块分析](CHUNK_204_EXPLANATION.md) |
-| Exp 32 | 将简洁材料与后台引用映射同时生成，让每个推理步骤可引多条材料 | 两份构建脚本在库，可用单题合成 fixture 离线验证。映射目前用页码与前 100 字符关联，存在碰撞和空 `chunkKey`。实施指南提到的推理/解析两个脚本在当前基线未收录。[构建映射](_exp32_build_prompt_with_traceback.cjs) · [生成 Prompt](_exp32_generate_multipath_prompt.cjs) · [实施说明](_exp32_README.md) |
-| Exp 34 | 检查 15 题范围的召回与推理效果 | 报告及两份 JSON 留有历史产出；报告记录 15/15 生成成功、754,214 token。成功率衡量生成完成，质量仍需按每题证据单独判定。[报告](_exp34_evaluation_report.md) · [归档样本](_exp34_evaluation_dataset_complete.json) · [推理数据](_exp34_all_reasoning_output.json) |
+| [`recall-nouns-llm.js`](recall-nouns-llm.js#L518) | [I01](#idea-i01)–[I03](#idea-i03) | 分数用于排序，Top-N 决定哪些词参与扩展，Set 控制同一块的重复加入。 |
+| [`_exp32_build_prompt_with_traceback.cjs`](_exp32_build_prompt_with_traceback.cjs) | [I04](#idea-i04)、[I05](#idea-i05) | 分清模型材料与内部溯源映射；样本能验证脚本生成的部分。 |
+| [`_exp34_evaluation_dataset_complete.json`](_exp34_evaluation_dataset_complete.json) | [I06](#idea-i06) | 这是既有评测归档，可用来理解记录字段与历次实验口径。 |
 
-## 运行边界
+## 走读与维护记录
 
-- **在线召回输入**需要获授权的 `DOCUVERSE_PATH`、`NOUN_INDEX_PATH`、`QUESTIONS_PATH`、模型配置和密钥。这三份实际输入在本库基线缺失，代码中的本机 Windows 路径只是历史默认值。配置 `OUTPUT_PATH` 到隔离目录，先以 `QUESTION_IDS=Z1-Q1` 限制题目。
-- **离线入门**先在 Node 24 跑 `node --check recall-nouns-llm.js` 和两份 Exp32 脚本的语法检查。要验证数据链路，把两份 Exp32 脚本复制到临时目录，接入最小的 `noun-recall-results-Z1Q1.json`、`topology-chains.json` 和 `candidate-texts-deduped.json`。审阅已用一条虚构法语材料验证生成的 Prompt 含 `【【1】】`，映射同号回到 fixture 的 `chunkKey`。[双输出输入约定](_exp32_README.md)
+从 `recalledBookKeys` 的 Set 查到 [I03](#idea-i03)，再打开 [204 块说明](CHUNK_204_EXPLANATION.md)。读完应能解释 204 是什么、为什么它依赖 Z1-Q1 与 Top 80，以及词项去重和材料块去重有什么区别。找到原始会话后，在对应条目补消息时间和脱敏定位；若出现其它代码版本，写清变更是否解释了实验文档与默认值的差异。
 
-## 开发和验收闭环
-
-1. **恢复可复现输入。** 维护者确认授权语料和候选格式，落下可公开的最小 fixture、输入哈希及版本映射。先验同一数据重复执行时，去重 ID 和映射稳定。
-2. **修复引用定位。** 构造同页正文前缀相同、不同块 ID 以及块缺失三种样例，令稳定 `chunkKey` 随候选传递。建议门槛是有引用的材料 100% 映射准确，缺块在结果中显式可查；碰撞时停止后续推理并追至材料生成阶段。
-3. **区分检索与推理指标。** 在同一题集标注相关 chunk 和不可回答题，比较名词 Top-N、去重率、Precision/Recall@K、引用准确率、空回答与成本。模型波动、阈值变化、同页材料碰撞都要进入报告。维护者在发出在线请求前批准题数与费用，并根据同版标注选择阈值。
-4. **形成下次的 Agent 上下文。** 保存取得输入的授权范围、实验配置、聚合结果和两类失败样本。用看得见的原文证据作为判断依据，手动复核不可回答题后再扩大样本。
-
-## 方法依据
-
-本指南把总体设计落实为边界、目标和任务接口，把工程控制中的反馈落实为观测、判据和纠偏。维护者用原始协作记录、代码和固定样本共同核验定性判断与量化结果，据此决定下一轮行动。[《工程控制论》](https://openlibrary.org/books/OL49218199M/Engineering_cybernetics) · [《组织管理的技术——系统工程》](https://doi.org/10.13255/j.cnki.jusst.2011.06.020) · [《一个科学新领域——开放的复杂巨系统及其方法论》](https://cnki.istiz.org.cn/kcms/detail/detail.aspx?dbcode=CPFD&dbname=cpfd1999&filename=ZGXC199008001001)
+**指南如何更新。** 以仓库和版本划定范围，从聊天提取原始目标，再用代码与产物校正对当时决策的理解。新证据出现时，回到原编号修订记录。这种读法借鉴了钱学森的系统工程和工程控制论。 [《组织管理的技术——系统工程》](https://doi.org/10.13255/j.cnki.jusst.2011.06.020) · [《工程控制论》](https://openlibrary.org/books/OL49218199M/Engineering_cybernetics)
